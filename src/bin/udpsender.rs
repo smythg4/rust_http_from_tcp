@@ -1,5 +1,5 @@
 use tokio::net::UdpSocket;
-use tokio::io::{self, AsyncBufReadExt, BufReader};
+use tokio::io::{AsyncBufReadExt, BufReader};
 use std::io::Write;
 
 #[tokio::main]
