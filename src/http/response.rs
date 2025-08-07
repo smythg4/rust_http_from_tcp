@@ -7,6 +7,7 @@ pub enum StatusCode {
     StatusOk,
     StatusBadRequest,
     StatusInternalServerError,
+    StatusNotFound,
 }
 
 impl std::fmt::Display for StatusCode {
@@ -15,6 +16,7 @@ impl std::fmt::Display for StatusCode {
             StatusCode::StatusOk => write!(f, "HTTP/1.1 200 OK"),
             StatusCode::StatusBadRequest  => write!(f, "HTTP/1.1 400 Bad Request"),
             StatusCode::StatusInternalServerError => write!(f, "HTTP/1.1 500 Internal Server Error"),
+            StatusCode::StatusNotFound => write!(f, "HTTP/1.1 404 File Not Found"),
         }
     }
 }
@@ -70,7 +72,7 @@ impl Writer {
         if self.state != WriterState::HeadersWritten {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
-                "Body must be written after headers"
+                "body must be written after headers"
             ));
         }
 
@@ -78,6 +80,63 @@ impl Writer {
         self.stream.flush().await?;
         self.state = WriterState::BodyWritten;
         Ok(body.len())
+    }
+
+    pub async fn write_chunked_body(&mut self, body: &[u8]) -> Result<usize, std::io::Error> {
+        if self.state != WriterState::HeadersWritten {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "body must be written after headers"
+            ));
+        }
+
+        let chunk_size = body.len();
+
+        let mut n_total = 0;
+        let n = self.stream.write(&format!("{:X}\r\n", chunk_size).as_bytes()).await?;
+        n_total += n;
+
+        let n = self.stream.write(body).await?;
+        n_total += n;
+
+        let n = self.stream.write("\r\n".as_bytes()).await?;
+        n_total += n;
+
+
+        Ok(n_total)
+    }
+
+    pub async fn write_chunked_body_done(&mut self) -> Result<usize, std::io::Error> {
+        if self.state != WriterState::HeadersWritten {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "body must be written after headers"
+            ));
+        }
+        let n = self.stream.write("0\r\n".as_bytes()).await?;
+        self.state = WriterState::BodyWritten;
+        Ok(n)
+    }
+
+    pub async fn write_trailers(&mut self, headers: &Headers) -> Result<usize, std::io::Error> {
+        if self.state != WriterState::BodyWritten {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "trailers can't be written until the body is done"
+            ));
+        }
+
+        let trailer_data = format!("{}\r\n", headers);
+        self.stream.write(trailer_data.as_bytes()).await?;
+        self.stream.flush().await?;
+
+        Ok(trailer_data.len())
+    }
+
+    pub async fn finish(&mut self) -> Result<usize, std::io::Error> {
+        let n = self.stream.write(b"\r\n").await?;
+        self.stream.flush().await?;
+        Ok(n)
     }
 }
 

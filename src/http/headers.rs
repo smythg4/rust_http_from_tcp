@@ -13,6 +13,10 @@ impl Headers {
         self.0.insert(key, value);
     }
 
+    pub fn remove_entry(&mut self, key: &str) {
+        self.0.remove_entry(key);
+    }
+
     pub fn get(&self, key: &str) -> Option<&String> {
         self.0.get(&key.to_lowercase())
     }
